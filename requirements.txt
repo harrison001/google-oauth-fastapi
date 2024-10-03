@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+fastapi-users[beanie,oauth]
+email-validator
+motor
+python-dotenv
