@@ -12,7 +12,7 @@ from httpx import AsyncClient
 import logging
 import secrets
 from typing import Any  # 添加这行
-from app.oauth_clients import linkedin_oauth_client
+from app.oauth_clients import linkedin_oauth_client, facebook_oauth_client
 
 class CustomGoogleOAuth2(GoogleOAuth2):
     async def get_id_email(self, token: str):
@@ -97,6 +97,13 @@ class UserManager(BaseUserManager[User, PydanticObjectId]):
                         "last_name": user_info.get("family_name"),
                         "picture": user_info.get("picture")
                     })
+                elif oauth_name == "facebook":
+                    user_info = await facebook_oauth_client.get_id_email(access_token)
+                    user_data.update({
+                        "first_name": user_info.get("first_name"),
+                        "last_name": user_info.get("last_name"),
+                        "picture": user_info.get("picture", {}).get("data", {}).get("url")
+                    })
 
                 user = await self.create(UserCreate(**user_data))
             else:
@@ -149,6 +156,20 @@ def get_oauth_associate_router():
 def get_linkedin_oauth_associate_router():
     return fastapi_users.get_oauth_associate_router(
         oauth_client=linkedin_oauth_client,
+        user_schema=UserRead,
+        state_secret=SECRET_KEY,
+    )
+
+def get_facebook_oauth_router():
+    return fastapi_users.get_oauth_router(
+        oauth_client=facebook_oauth_client,
+        backend=auth_backend,
+        state_secret=SECRET_KEY,
+    )
+
+def get_facebook_oauth_associate_router():
+    return fastapi_users.get_oauth_associate_router(
+        oauth_client=facebook_oauth_client,
         user_schema=UserRead,
         state_secret=SECRET_KEY,
     )

@@ -1,11 +1,10 @@
 from fastapi import FastAPI, Depends, APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
-from .auth import fastapi_users, current_active_user, google_oauth_client, get_user_manager, UserManager, auth_backend, get_linkedin_oauth_router, get_linkedin_oauth_associate_router
+from .auth import fastapi_users, current_active_user, google_oauth_client, get_user_manager, UserManager, auth_backend, get_linkedin_oauth_router, get_linkedin_oauth_associate_router, get_facebook_oauth_router, get_facebook_oauth_associate_router
 from .models import User, UserCreate, UserRead, UserUpdate
 from .config import SECRET_KEY, MONGODB_URL, DATABASE_NAME
 from .db import init_db
-from .oauth_clients import linkedin_oauth_client
-from app.oauth_clients import linkedin_oauth_client
+from .oauth_clients import linkedin_oauth_client, facebook_oauth_client
 
 import logging
 import secrets
@@ -302,6 +301,100 @@ async def auth_error(error: str, description: str):
 @app.get("/auth-success")
 async def auth_success(access_token: str):
     return {"message": "Authentication successful", "access_token": access_token}
+
+# Facebook OAuth routes
+facebook_oauth_router = APIRouter()
+
+@facebook_oauth_router.get("/login")
+async def facebook_login():
+    redirect_uri = "http://localhost:8000/auth/facebook/callback"
+    state = secrets.token_urlsafe(16)
+    authorization_url = await facebook_oauth_client.get_authorization_url(redirect_uri, state)
+    return RedirectResponse(url=authorization_url)
+
+@app.get("/auth/facebook/callback")
+async def facebook_callback(request: Request, user_manager: UserManager = Depends(get_user_manager)):
+    try:
+        code = request.query_params.get("code")
+        if not code:
+            raise HTTPException(status_code=400, detail="Missing authorization code")
+
+        redirect_uri = "http://localhost:8000/auth/facebook/callback"
+        token = await facebook_oauth_client.get_access_token(code, redirect_uri)
+        logging.debug(f"Received Facebook token: {token}")
+
+        user_data = await facebook_oauth_client.get_id_email(token["access_token"])
+        logging.info(f"Received Facebook user data: {user_data}")
+
+        # 假设 get_id_email 返回一个元组 (id, email)
+        account_id, email = user_data
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Email not found in user data")
+
+        # 获取额外的用户信息
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://graph.facebook.com/v12.0/me?fields=id,first_name,last_name,picture&access_token={token['access_token']}"
+            )
+            response.raise_for_status()
+            profile_data = response.json()
+            logging.info(f"Received Facebook profile data: {profile_data}")
+
+        first_name = profile_data.get("first_name")
+        last_name = profile_data.get("last_name")
+        picture = profile_data.get("picture", {}).get("data", {}).get("url")
+
+        # 检查用户是否存在，如果不存在则创建新用户
+        try:
+            user = await user_manager.get_by_email(email)
+        except Exception:
+            user = None
+
+        if user is None:
+            user = await user_manager.create(
+                UserCreate(
+                    email=email,
+                    password=secrets.token_urlsafe(32),
+                    first_name=first_name,
+                    last_name=last_name,
+                    picture=picture,
+                    oauth_provider="facebook"
+                )
+            )
+            logging.info(f"New user created: {user.dict()}")
+        else:
+            # 更新现有用户的信息
+            user.first_name = first_name
+            user.last_name = last_name
+            user.picture = picture
+            user.oauth_provider = "facebook"
+            await user.save()
+            logging.info(f"User updated: {user.dict()}")
+
+        # 创建访问令牌
+        access_token = await auth_backend.get_strategy().write_token(user)
+        logging.debug(f"Access token created: {access_token}")
+
+        # 重定向到成功页面，带上访问令牌
+        return RedirectResponse(url=f"/auth-success?access_token={access_token}")
+
+    except Exception as e:
+        logging.error(f"Error in Facebook callback: {str(e)}")
+        return RedirectResponse(url=f"/auth-error?error=unexpected_error&description={str(e)}")
+
+# 添加 Facebook OAuth 路由
+app.include_router(facebook_oauth_router, prefix="/auth/facebook", tags=["auth"])
+
+# 修改测试路由
+@app.get("/test-facebook-oauth-client")
+async def test_facebook_oauth_client():
+    state = secrets.token_urlsafe(16)
+    authorization_url = await facebook_oauth_client.get_authorization_url(
+        "http://localhost:8000/auth/facebook/callback",
+        state=state
+    )
+    return {"authorization_url": authorization_url}
 
 if __name__ == "__main__":
     import uvicorn
