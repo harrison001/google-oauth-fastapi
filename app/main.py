@@ -1,9 +1,9 @@
 from fastapi import FastAPI, Depends, APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
-from app.auth import fastapi_users, current_active_user, google_oauth_client, get_user_manager, UserManager, auth_backend
-from app.models import User, UserCreate, UserRead, UserUpdate
-from app.config import SECRET_KEY
-from app.db import init_db
+from .auth import fastapi_users, current_active_user, google_oauth_client, get_user_manager, UserManager, auth_backend
+from .models import User, UserCreate, UserRead, UserUpdate
+from .config import SECRET_KEY, MONGODB_URL, DATABASE_NAME
+from .db import init_db
 
 import logging
 import secrets
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from app.config import MONGODB_URL, DATABASE_NAME
+from .config import MONGODB_URL, DATABASE_NAME
 
 @app.on_event("startup")
 async def startup_event():
@@ -56,7 +56,7 @@ app.include_router(
     tags=["users"],
 )
 
-# 直接在 include_router 中调用 get_oauth_router()
+# ���接在 include_router 中调用 get_oauth_router()
 # app.include_router(get_oauth_router(), prefix="/auth/google", tags=["auth"])
 # app.include_router(get_oauth_associate_router(), prefix="/auth/associate/google", tags=["auth"])
 

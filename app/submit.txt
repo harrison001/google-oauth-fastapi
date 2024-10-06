@@ -1,0 +1,12 @@
+# Stage and commit the changes
+git add .
+git commit -m "Fix and update Google OAuth implementation"
+
+# Push the changes to the main branch
+git push origin main
+
+# Create a new tag (e.g., v1.1.0)
+git tag v1.1.0
+
+# Push the new tag to GitHub
+git push origin v1.1.0
