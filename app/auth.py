@@ -12,6 +12,7 @@ from httpx import AsyncClient
 import logging
 import secrets
 from typing import Any  # 添加这行
+from app.oauth_clients import linkedin_oauth_client
 
 class CustomGoogleOAuth2(GoogleOAuth2):
     async def get_id_email(self, token: str):
@@ -104,9 +105,23 @@ def get_oauth_router():
         state_secret=SECRET_KEY,
     )
 
+def get_linkedin_oauth_router():
+    return fastapi_users.get_oauth_router(
+        oauth_client=linkedin_oauth_client,
+        backend=auth_backend,
+        state_secret=SECRET_KEY,
+    )
+
 def get_oauth_associate_router():
     return fastapi_users.get_oauth_associate_router(
         oauth_client=google_oauth_client,
+        user_schema=UserRead,
+        state_secret=SECRET_KEY,
+    )
+
+def get_linkedin_oauth_associate_router():
+    return fastapi_users.get_oauth_associate_router(
+        oauth_client=linkedin_oauth_client,
         user_schema=UserRead,
         state_secret=SECRET_KEY,
     )
