@@ -8,6 +8,10 @@ from beanie import PydanticObjectId
 class User(BeanieBaseUser, Document):
     email: EmailStr
     hashed_password: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    picture: Optional[str] = None
+    oauth_provider: Optional[str] = None  # 'google' or 'linkedin'
     
     class Settings:
         name = "users"
@@ -21,6 +25,10 @@ class User(BeanieBaseUser, Document):
                 "is_active": True,
                 "is_superuser": False,
                 "is_verified": False,
+                "first_name": "John",
+                "last_name": "Doe",
+                "picture": "https://example.com/avatar.jpg",
+                "oauth_provider": "google",
             }
         }
 

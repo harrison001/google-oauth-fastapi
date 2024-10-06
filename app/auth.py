@@ -24,12 +24,14 @@ class CustomGoogleOAuth2(GoogleOAuth2):
             response.raise_for_status()
             data = response.json()
             
-            # Add logging here
             logging.debug(f"Raw Google user info: {data}")
             
             return {
                 "id": data.get("id"),
                 "email": data.get("email"),
+                "given_name": data.get("given_name"),
+                "family_name": data.get("family_name"),
+                "picture": data.get("picture")
             }
 
 # OAuth client configuration
@@ -61,7 +63,7 @@ class UserManager(BaseUserManager[User, PydanticObjectId]):
                 user_dict["hashed_password"] = hashed_password
                 del user_dict["password"]
             user = await self.user_db.create(user_dict)
-            logging.debug(f"User created: {user}")
+            logging.debug(f"User created: {user.dict()}")
             return user
         except Exception as e:
             logging.error(f"Error creating user: {str(e)}", exc_info=True)
@@ -74,9 +76,34 @@ class UserManager(BaseUserManager[User, PydanticObjectId]):
             if user is None:
                 # 为 OAuth 用户创建一个随机密码
                 random_password = secrets.token_urlsafe(32)
-                user = await self.create(
-                    UserCreate(email=account_email, password=random_password)
-                )
+                user_data = {
+                    "email": account_email,
+                    "password": random_password,
+                    "oauth_provider": oauth_name
+                }
+
+                # 获取额外的用户信息
+                if oauth_name == "google":
+                    user_info = await google_oauth_client.get_id_email(access_token)
+                    user_data.update({
+                        "first_name": user_info.get("given_name"),
+                        "last_name": user_info.get("family_name"),
+                        "picture": user_info.get("picture")
+                    })
+                elif oauth_name == "linkedin":
+                    user_info = await linkedin_oauth_client.get_id_email(access_token)
+                    user_data.update({
+                        "first_name": user_info.get("given_name"),
+                        "last_name": user_info.get("family_name"),
+                        "picture": user_info.get("picture")
+                    })
+
+                user = await self.create(UserCreate(**user_data))
+            else:
+                # 更新现有用户的 OAuth 提供商
+                user.oauth_provider = oauth_name
+                await user.save()
+
             return user
         except Exception as e:
             logging.error(f"Error in oauth_callback: {str(e)}", exc_info=True)

@@ -12,7 +12,8 @@ import secrets
 import httpx
 import json
 
-logging.basicConfig(level=logging.DEBUG)
+# 修改日志级别，去掉心跳日志
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -91,23 +92,17 @@ async def google_oauth_callback(request: Request, user_manager: UserManager = De
 
         # Get user info using the access token
         user_data = await google_oauth_client.get_id_email(token["access_token"])
-        logging.debug(f"Received user data: {user_data}")
-
-        # Check if user_data is a dictionary
-        if not isinstance(user_data, dict):
-            raise ValueError(f"Unexpected user data format: {user_data}")
-
-        # Check if 'email' is in user_data
-        if "email" not in user_data:
-            raise ValueError(f"Email not found in user data: {user_data}")
+        logging.info(f"Received Google user data: {user_data}")
 
         email = user_data["email"]
-        logging.debug(f"Extracted email: {email}")
+        first_name = user_data.get("given_name")
+        last_name = user_data.get("family_name")
+        picture = user_data.get("picture")
 
         # Check if user exists, if not, create a new user
         try:
             user = await user_manager.get_by_email(email)
-            logging.debug(f"Existing user found: {user}")
+            logging.info(f"Existing user found: {user}")
         except Exception as e:
             logging.error(f"Error getting user by email: {str(e)}")
             user = None
@@ -115,12 +110,27 @@ async def google_oauth_callback(request: Request, user_manager: UserManager = De
         if user is None:
             try:
                 user = await user_manager.create(
-                    UserCreate(email=email, password=secrets.token_urlsafe(32))
+                    UserCreate(
+                        email=email,
+                        password=secrets.token_urlsafe(32),
+                        first_name=first_name,
+                        last_name=last_name,
+                        picture=picture,
+                        oauth_provider="google"
+                    )
                 )
-                logging.debug(f"New user created: {user}")
+                logging.info(f"New user created: {user}")
             except Exception as e:
                 logging.error(f"Error creating new user: {str(e)}")
                 raise HTTPException(status_code=500, detail="Failed to create new user")
+        else:
+            # 更新现有用户的信息
+            user.first_name = first_name
+            user.last_name = last_name
+            user.picture = picture
+            user.oauth_provider = "google"
+            await user.save()
+            logging.info(f"User updated: {user}")
 
         # Create access token
         try:
@@ -149,7 +159,20 @@ async def read_root():
 
 @app.get("/protected-route")
 async def protected_route(user: User = Depends(current_active_user)):
-    return {"message": f"Hello, {user.email}"}
+    oauth_provider = user.oauth_provider or "Email"
+    
+    # 打印获取到的用户信息
+    logger.info(f"User info: {user.dict()}")
+    
+    return {
+        "message": f"Hello, {user.first_name or ''} {user.last_name or ''}!",
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "picture": user.picture,
+        "oauth_provider": oauth_provider,
+        "additional_info": f"You logged in using {oauth_provider} authentication."
+    }
 
 @app.get("/test")
 async def test_route():
@@ -211,9 +234,13 @@ async def linkedin_callback(request: Request, user_manager: UserManager = Depend
             )
             response.raise_for_status()
             user_data = response.json()
-            logging.debug(f"Received LinkedIn user data: {user_data}")
+            logging.info(f"Received LinkedIn user data: {user_data}")
 
         email = user_data.get("email")
+        first_name = user_data.get("given_name")
+        last_name = user_data.get("family_name")
+        picture = user_data.get("picture")
+
         if not email:
             raise HTTPException(status_code=400, detail="Email not found in user data")
 
@@ -227,10 +254,22 @@ async def linkedin_callback(request: Request, user_manager: UserManager = Depend
             user = await user_manager.create(
                 UserCreate(
                     email=email,
-                    password=secrets.token_urlsafe(32),  # 生成一个随机密码
+                    password=secrets.token_urlsafe(32),
+                    first_name=first_name,
+                    last_name=last_name,
+                    picture=picture,
+                    oauth_provider="linkedin"
                 )
             )
-            logging.debug(f"New user created: {user}")
+            logging.info(f"New user created: {user.dict()}")
+        else:
+            # 更新现有用户的信息
+            user.first_name = first_name
+            user.last_name = last_name
+            user.picture = picture
+            user.oauth_provider = "linkedin"
+            await user.save()
+            logging.info(f"User updated: {user.dict()}")
 
         # 创建访问令牌
         access_token = await auth_backend.get_strategy().write_token(user)
